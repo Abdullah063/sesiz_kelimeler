@@ -21,7 +21,7 @@ DOWNLOAD_URL = f"https://drive.google.com/uc?id={FILE_ID}"
 # Model klasörünü oluştur
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# === CUSTOM LAYERS - Capsule Network için ===
+# === CUSTOM LAYERS ===
 class Length(layers.Layer):
     def call(self, inputs, **kwargs):
         return K.sqrt(K.sum(K.square(inputs), -1) + K.epsilon())
@@ -35,17 +35,17 @@ class Length(layers.Layer):
 
 
 class PrimaryCapsule(layers.Layer):
-    def __init__(self, num_capsule, dim_capsule, kernel_size, strides, padding, **kwargs):
+    def __init__(self, dim_capsule, n_channels, kernel_size, strides, padding='valid', **kwargs):
         super(PrimaryCapsule, self).__init__(**kwargs)
-        self.num_capsule = num_capsule
         self.dim_capsule = dim_capsule
+        self.n_channels = n_channels
         self.kernel_size = kernel_size
         self.strides = strides
         self.padding = padding
 
     def build(self, input_shape):
         self.conv = layers.Conv2D(
-            filters=self.num_capsule * self.dim_capsule,
+            filters=self.n_channels * self.dim_capsule,
             kernel_size=self.kernel_size,
             strides=self.strides,
             padding=self.padding
@@ -54,7 +54,8 @@ class PrimaryCapsule(layers.Layer):
 
     def call(self, inputs):
         outputs = self.conv(inputs)
-        outputs = layers.Reshape(target_shape=[-1, self.dim_capsule])(outputs)
+        batch_size = tf.shape(inputs)[0]
+        outputs = tf.reshape(outputs, [batch_size, -1, self.dim_capsule])
         return self.squash(outputs)
 
     @staticmethod
@@ -64,12 +65,12 @@ class PrimaryCapsule(layers.Layer):
         return scale * vectors
 
     def compute_output_shape(self, input_shape):
-        return (None, self.num_capsule, self.dim_capsule)
+        return (None, self.n_channels, self.dim_capsule)
 
     def get_config(self):
         config = {
-            'num_capsule': self.num_capsule,
             'dim_capsule': self.dim_capsule,
+            'n_channels': self.n_channels,
             'kernel_size': self.kernel_size,
             'strides': self.strides,
             'padding': self.padding,
@@ -130,7 +131,7 @@ class CapsuleLayer(layers.Layer):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-# Eğer model yoksa indir
+# Model indir
 if not os.path.exists(MODEL_PATH):
     print("🔽 Model indiriliyor...")
     try:
@@ -140,7 +141,7 @@ if not os.path.exists(MODEL_PATH):
         print(f"❌ Model indirilemedi: {e}")
         raise
 
-# Modeli custom objects ile yükle
+# Modeli yükle
 print("📦 Model yükleniyor...")
 custom_objects = {
     'PrimaryCapsule': PrimaryCapsule,
